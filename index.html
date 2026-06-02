@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fingerprint</title>
+
+<style>
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    background: #0a0a0a;
+    color: #e0e0e0;
+    font-family: "Courier New", monospace;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    text-align: center;
+}
+
+.container {
+    padding: 30px;
+}
+
+.label {
+    font-size: 20px;
+    margin-bottom: 10px;
+}
+
+#out {
+    color: #00ff88;
+    word-break: break-all;
+    font-size: 16px;
+}
+</style>
+
+</head>
+<body>
+
+<div class="container">
+    <div class="label">Your Fingerprint:</div>
+    <div id="out">Generating...</div>
+</div>
+
+<script>
+async function getFingerprint() {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+
+    canvas.width = 220;
+    canvas.height = 30;
+
+    const text = 'BrowserLeaks,com <canvas> 1.0';
+
+    ctx.textBaseline = 'top';
+    ctx.font = "14px Arial";
+
+    ctx.textBaseline = 'alphabetic';
+
+    ctx.fillStyle = '#f60';
+    ctx.fillRect(125, 1, 62, 20);
+
+    ctx.fillStyle = '#069';
+    ctx.fillText(text, 2, 15);
+
+    ctx.fillStyle = 'rgba(102,204,0,0.7)';
+    ctx.fillText(text, 4, 17);
+
+    ctx.beginPath();
+    ctx.arc(20, 20, 10, 0, Math.PI * 2);
+    ctx.strokeStyle = '#00aaff';
+    ctx.stroke();
+
+    const pngData = canvas.toDataURL('image/png');
+
+    const fingerprintData = [
+        pngData,
+        navigator.userAgent,
+        navigator.language,
+        navigator.platform,
+        navigator.hardwareConcurrency || '',
+        navigator.deviceMemory || '',
+        screen.width,
+        screen.height,
+        screen.colorDepth,
+        Intl.DateTimeFormat().resolvedOptions().timeZone
+    ].join('|');
+
+    const encoded = new TextEncoder().encode(fingerprintData);
+
+    const hashBuffer = await crypto.subtle.digest(
+        'SHA-256',
+        encoded
+    );
+
+    return Array.from(new Uint8Array(hashBuffer))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
+}
+
+getFingerprint()
+    .then(hash => {
+        document.getElementById('out').textContent = hash;
+    })
+    .catch(err => {
+        document.getElementById('out').textContent =
+            'Error: ' + err.message;
+    });
+</script>
+</body>
+</html>
