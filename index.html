@@ -1,117 +1,439 @@
 <!DOCTYPE html>
-
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Fingerprint</title>
-
 <style>
-* {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-}
-
+* { margin: 0; padding: 0; box-sizing: border-box; }
 body {
-    background: #0a0a0a;
-    color: #e0e0e0;
-    font-family: "Courier New", monospace;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 100vh;
-    text-align: center;
+  background: #0a0a0a;
+  color: #e0e0e0;
+  font-family: "Courier New", monospace;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 24px;
+  padding: 30px;
 }
-
-.container {
-    padding: 30px;
-}
-
-.label {
-    font-size: 20px;
-    margin-bottom: 10px;
-}
-
+.label { font-size: 20px; }
 #out {
-    color: #00ff88;
-    word-break: break-all;
-    font-size: 16px;
+  color: #00ff88;
+  word-break: normal;
+  text-wrap: balance;
+  font-size: 16px;
+  text-align: center;
+  max-width: 600px;
+  line-height: 1.7;
+  letter-spacing: 1px;
 }
+details { max-width: 600px; width: 100%; }
+summary {
+  font-size: 12px; color: #444; cursor: pointer;
+  letter-spacing: 2px; user-select: none; list-style: none; text-align: center;
+}
+summary::-webkit-details-marker { display: none; }
+summary::before { content: '▶ '; font-size: 10px; }
+details[open] summary::before { content: '▼ '; }
+#signal-list { margin-top: 14px; display: flex; flex-direction: column; gap: 6px; }
+.signal-row {
+  display: flex; justify-content: space-between; font-size: 12px;
+  border-bottom: 1px solid #141414; padding-bottom: 6px; gap: 16px;
+}
+.sig-name { color: #444; white-space: nowrap; }
+.sig-val  { color: #aaa; text-align: right; word-break: break-all; }
+.sig-val.t { color: #00cc66; }
+.sig-val.f { color: #ff4444; }
 </style>
-
 </head>
 <body>
 
-<div class="container">
-    <div class="label">Your Fingerprint:</div>
-    <div id="out">Generating...</div>
-</div>
+<div class="label">Your Fingerprint:</div>
+<div id="out">Generating…</div>
+
+<details>
+  <summary>DETAILS</summary>
+  <div id="signal-list"></div>
+</details>
 
 <script>
-async function getFingerprint() {
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
+let signals = [];
+const parts = [];
 
-    canvas.width = 220;
-    canvas.height = 30;
-
-    const text = 'BrowserLeaks,com <canvas> 1.0';
-
-    ctx.textBaseline = 'top';
-    ctx.font = "14px Arial";
-
-    ctx.textBaseline = 'alphabetic';
-
-    ctx.fillStyle = '#f60';
-    ctx.fillRect(125, 1, 62, 20);
-
-    ctx.fillStyle = '#069';
-    ctx.fillText(text, 2, 15);
-
-    ctx.fillStyle = 'rgba(102,204,0,0.7)';
-    ctx.fillText(text, 4, 17);
-
-    ctx.beginPath();
-    ctx.arc(20, 20, 10, 0, Math.PI * 2);
-    ctx.strokeStyle = '#00aaff';
-    ctx.stroke();
-
-    const pngData = canvas.toDataURL('image/png');
-
-    const fingerprintData = [
-        pngData,
-        navigator.userAgent,
-        navigator.language,
-        navigator.platform,
-        navigator.hardwareConcurrency || '',
-        navigator.deviceMemory || '',
-        screen.width,
-        screen.height,
-        screen.colorDepth,
-        Intl.DateTimeFormat().resolvedOptions().timeZone
-    ].join('|');
-
-    const encoded = new TextEncoder().encode(fingerprintData);
-
-    const hashBuffer = await crypto.subtle.digest(
-        'SHA-256',
-        encoded
-    );
-
-    return Array.from(new Uint8Array(hashBuffer))
-        .map(b => b.toString(16).padStart(2, '0'))
-        .join('');
+function add(name, val, flag) {
+  signals.push({ name, value: String(val), flag });
+  if (flag === undefined) parts.push(String(val));
 }
 
-getFingerprint()
-    .then(hash => {
-        document.getElementById('out').textContent = hash;
-    })
-    .catch(err => {
-        document.getElementById('out').textContent =
-            'Error: ' + err.message;
-    });
+// ── Capability detection (BrowserLeaks-style ✔/✗) ────────────────────────────
+function detectCapabilities() {
+  const caps = {};
+  const c = document.createElement('canvas');
+  caps['Canvas Support'] = !!(c.getContext);
+  let ctx = null;
+  try { ctx = c.getContext('2d'); } catch(e) {}
+  caps['Canvas 2D API'] = !!ctx;
+  caps['Text API for Canvas'] = !!(ctx && typeof ctx.fillText === 'function');
+  caps['Canvas toDataURL'] = !!(typeof c.toDataURL === 'function');
+  caps['Canvas toBlob'] = !!(typeof c.toBlob === 'function');
+  caps['Canvas getImageData'] = !!(ctx && typeof ctx.getImageData === 'function');
+  caps['Canvas BlendModes'] = !!(ctx && 'globalCompositeOperation' in ctx);
+  caps['OffscreenCanvas'] = (typeof OffscreenCanvas !== 'undefined');
+  caps['WebGL Support'] = (() => { try { const cc = document.createElement('canvas'); return !!(cc.getContext('webgl') || cc.getContext('experimental-webgl')); } catch(e){ return false; } })();
+  caps['WebGL2 Support'] = (() => { try { const cc = document.createElement('canvas'); return !!cc.getContext('webgl2'); } catch(e){ return false; } })();
+  caps['WebGPU Support'] = ('gpu' in navigator);
+  caps['Web Audio API'] = !!(window.AudioContext || window.webkitAudioContext);
+  caps['OfflineAudioContext'] = !!(window.OfflineAudioContext || window.webkitOfflineAudioContext);
+  caps['WebRTC'] = !!(window.RTCPeerConnection || window.webkitRTCPeerConnection);
+  caps['SubtleCrypto'] = !!(window.crypto && window.crypto.subtle);
+  caps['IndexedDB'] = !!window.indexedDB;
+  caps['LocalStorage'] = (() => { try { localStorage.setItem('_t','1'); localStorage.removeItem('_t'); return true; } catch(e){return false;} })();
+  caps['SessionStorage'] = (() => { try { sessionStorage.setItem('_t','1'); sessionStorage.removeItem('_t'); return true; } catch(e){return false;} })();
+  caps['ServiceWorker'] = ('serviceWorker' in navigator);
+  caps['WebAssembly'] = (typeof WebAssembly === 'object');
+  caps['SharedArrayBuffer'] = (typeof SharedArrayBuffer !== 'undefined');
+  caps['Geolocation API'] = ('geolocation' in navigator);
+  caps['Battery API'] = ('getBattery' in navigator);
+  caps['Bluetooth API'] = ('bluetooth' in navigator);
+  caps['USB API'] = ('usb' in navigator);
+  caps['Gamepad API'] = ('getGamepads' in navigator);
+  caps['Speech Synthesis'] = ('speechSynthesis' in window);
+  caps['Clipboard API'] = !!(navigator.clipboard);
+  caps['Permissions API'] = ('permissions' in navigator);
+  caps['Notification API'] = ('Notification' in window);
+  caps['Touch Events'] = ('ontouchstart' in window);
+  caps['Pointer Events'] = ('onpointerdown' in window);
+  caps['DeviceMotion'] = ('DeviceMotionEvent' in window);
+  caps['DeviceOrientation'] = ('DeviceOrientationEvent' in window);
+  caps['Vibration API'] = ('vibrate' in navigator);
+  caps['Network Info API'] = !!(navigator.connection || navigator.mozConnection || navigator.webkitConnection);
+  caps['Media Devices API'] = !!(navigator.mediaDevices && navigator.mediaDevices.enumerateDevices);
+  caps['Intl API'] = (typeof Intl === 'object');
+  caps['BigInt'] = (typeof BigInt !== 'undefined');
+  return caps;
+}
+
+// ── CRC32 (for PNG IDAT analysis) ────────────────────────────────────────────
+const crcTable = (() => {
+  const t = [];
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+function crc32(bytes) {
+  let crc = 0xFFFFFFFF;
+  for (let i = 0; i < bytes.length; i++) crc = crcTable[(crc ^ bytes[i]) & 0xFF] ^ (crc >>> 8);
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+
+// ── PNG parsing — extract chunks, IDAT CRC, color count ───────────────────────
+function analyzePNG(dataURL) {
+  try {
+    const b64 = dataURL.split(',')[1];
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+
+    const result = { fileSize: bytes.length, chunks: [], idatCRC: null };
+    // PNG signature is 8 bytes; chunks follow
+    let pos = 8;
+    const dv = new DataView(bytes.buffer);
+    while (pos < bytes.length - 8) {
+      const len = dv.getUint32(pos);
+      const type = String.fromCharCode(bytes[pos+4], bytes[pos+5], bytes[pos+6], bytes[pos+7]);
+      const crc = dv.getUint32(pos + 8 + len);
+      result.chunks.push({ type, len, crc: crc.toString(16).padStart(8,'0') });
+      if (type === 'IDAT' && result.idatCRC === null) {
+        result.idatCRC = crc.toString(16).padStart(8,'0');
+      }
+      if (type === 'IEND') break;
+      pos += 12 + len;
+    }
+    return result;
+  } catch(e) { return null; }
+}
+
+// ── Count distinct colors in canvas ──────────────────────────────────────────
+function countColors(ctx, w, h) {
+  try {
+    const data = ctx.getImageData(0, 0, w, h).data;
+    const seen = new Set();
+    for (let i = 0; i < data.length; i += 4) {
+      seen.add((data[i] << 24) | (data[i+1] << 16) | (data[i+2] << 8) | data[i+3]);
+    }
+    return seen.size;
+  } catch(e) { return -1; }
+}
+
+// ── Canvas fingerprint (BrowserLeaks-style draw + analysis) ──────────────────
+function getCanvas() {
+  try {
+    const c = document.createElement('canvas');
+    c.width = 280; c.height = 60;
+    const ctx = c.getContext('2d');
+    const txt = 'BrowserLeaks,com <canvas> 1.0 🌀';
+    ctx.textBaseline = 'top';
+    ctx.font = "14px 'Arial'";
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = '#f60';
+    ctx.fillRect(125, 1, 62, 20);
+    ctx.fillStyle = '#069';
+    ctx.fillText(txt, 2, 15);
+    ctx.fillStyle = 'rgba(102,204,0,0.7)';
+    ctx.fillText(txt, 4, 17);
+    ctx.font = '18pt Arial';
+    ctx.fillStyle = 'rgba(255,0,255,0.5)';
+    ctx.beginPath();
+    ctx.arc(240, 30, 18, 0, Math.PI * 2);
+    ctx.fill();
+    const url = c.toDataURL();
+    const png = analyzePNG(url);
+    const colors = countColors(ctx, c.width, c.height);
+    return { url, png, colors };
+  } catch(e) { return { url: 'blocked', png: null, colors: -1 }; }
+}
+
+// ── WebGL deep scan ──────────────────────────────────────────────────────────
+function getWebGL() {
+  try {
+    const c = document.createElement('canvas');
+    const gl = c.getContext('webgl') || c.getContext('experimental-webgl');
+    if (!gl) return null;
+    const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+    const renderer = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+    const vendor   = dbg ? gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL)   : gl.getParameter(gl.VENDOR);
+    const exts = (gl.getSupportedExtensions() || []).sort().join(',');
+    const params = {
+      MAX_TEXTURE_SIZE: gl.getParameter(gl.MAX_TEXTURE_SIZE),
+      MAX_VIEWPORT_DIMS: gl.getParameter(gl.MAX_VIEWPORT_DIMS)?.join('x'),
+      MAX_VERTEX_ATTRIBS: gl.getParameter(gl.MAX_VERTEX_ATTRIBS),
+      MAX_VERTEX_UNIFORM_VECTORS: gl.getParameter(gl.MAX_VERTEX_UNIFORM_VECTORS),
+      MAX_VARYING_VECTORS: gl.getParameter(gl.MAX_VARYING_VECTORS),
+      MAX_FRAGMENT_UNIFORM_VECTORS: gl.getParameter(gl.MAX_FRAGMENT_UNIFORM_VECTORS),
+      MAX_TEXTURE_IMAGE_UNITS: gl.getParameter(gl.MAX_TEXTURE_IMAGE_UNITS),
+      MAX_COMBINED_TEXTURE_IMAGE_UNITS: gl.getParameter(gl.MAX_COMBINED_TEXTURE_IMAGE_UNITS),
+      MAX_CUBE_MAP_TEXTURE_SIZE: gl.getParameter(gl.MAX_CUBE_MAP_TEXTURE_SIZE),
+      MAX_RENDERBUFFER_SIZE: gl.getParameter(gl.MAX_RENDERBUFFER_SIZE),
+      DEPTH_BITS: gl.getParameter(gl.DEPTH_BITS),
+      STENCIL_BITS: gl.getParameter(gl.STENCIL_BITS),
+      ALIASED_LINE_WIDTH_RANGE: gl.getParameter(gl.ALIASED_LINE_WIDTH_RANGE)?.join('-'),
+      ALIASED_POINT_SIZE_RANGE: gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE)?.join('-'),
+      MAX_ANISOTROPY: (() => {
+        const e = gl.getExtension('EXT_texture_filter_anisotropic') || gl.getExtension('WEBKIT_EXT_texture_filter_anisotropic');
+        return e ? gl.getParameter(e.MAX_TEXTURE_MAX_ANISOTROPY_EXT) : 'N/A';
+      })(),
+      FRAG_HIGH_FLOAT: (() => {
+        const p = gl.getShaderPrecisionFormat(gl.FRAGMENT_SHADER, gl.HIGH_FLOAT);
+        return p ? `${p.rangeMin}/${p.rangeMax}/${p.precision}` : 'N/A';
+      })(),
+    };
+    c.width = 256; c.height = 128;
+    const prog = gl.createProgram();
+    const vs = gl.createShader(gl.VERTEX_SHADER);
+    gl.shaderSource(vs, 'attribute vec2 p;void main(){gl_Position=vec4(p,0,1);}'); gl.compileShader(vs);
+    const fs = gl.createShader(gl.FRAGMENT_SHADER);
+    gl.shaderSource(fs, 'precision highp float;void main(){gl_FragColor=vec4(sin(gl_FragCoord.x*0.1+0.5)*0.5+0.5,cos(gl_FragCoord.y*0.13)*0.5+0.5,fract(gl_FragCoord.x*gl_FragCoord.y*0.001),1.0);}'); gl.compileShader(fs);
+    gl.attachShader(prog, vs); gl.attachShader(prog, fs); gl.linkProgram(prog); gl.useProgram(prog);
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,1,1]), gl.STATIC_DRAW);
+    const loc = gl.getAttribLocation(prog, 'p');
+    gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    const px = new Uint8Array(256*128*4);
+    gl.readPixels(0, 0, 256, 128, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    let h = 0; for (let i=0;i<px.length;i++) h = ((h<<5)-h+px[i])|0;
+    return { renderer, vendor, exts, params, imgHash: (h>>>0).toString(16) };
+  } catch(e) { return null; }
+}
+
+function getAudio() {
+  return new Promise(resolve => {
+    try {
+      const AC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+      if (!AC) return resolve('unavailable');
+      const ctx = new AC(1, 44100, 44100);
+      const osc = ctx.createOscillator();
+      const comp = ctx.createDynamicsCompressor();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(10000, ctx.currentTime);
+      ['threshold','knee','ratio','attack','release'].forEach(k => { if (comp[k]) comp[k].setValueAtTime(comp[k].defaultValue, ctx.currentTime); });
+      osc.connect(comp); comp.connect(ctx.destination);
+      osc.start(0); ctx.startRendering();
+      ctx.oncomplete = e => {
+        const buf = e.renderedBuffer.getChannelData(0);
+        let sum = 0; for (let i=4500;i<5000;i++) sum += Math.abs(buf[i]);
+        resolve(sum.toString().slice(0, 14));
+      };
+    } catch(e) { resolve('blocked'); }
+  });
+}
+
+function getFonts() {
+  const fonts = ['Arial','Arial Black','Calibri','Cambria','Comic Sans MS','Consolas','Courier New','Georgia','Helvetica','Impact','Lucida Console','Palatino Linotype','Segoe UI','Tahoma','Times New Roman','Trebuchet MS','Verdana','Futura','Gill Sans','Optima','Monaco','Menlo','Ubuntu','Roboto','Open Sans'];
+  const c = document.createElement('canvas');
+  const ctx = c.getContext('2d');
+  ctx.font = '72px monospace';
+  const base = ctx.measureText('mmmmmmmmmmlli').width;
+  return fonts.filter(f => { ctx.font = `72px '${f}',monospace`; return ctx.measureText('mmmmmmmmmmlli').width !== base; });
+}
+
+function getMathFingerprint() {
+  const vals = [
+    Math.tan(-1e300), Math.sin(1e300), Math.cos(1e300), Math.atan2(1e300,-1e300),
+    Math.exp(1), Math.log(1+1e-10), Math.sqrt(2)-1.4142135623730951,
+    Math.pow(Math.PI,3)-31.006276680299816, Math.cbrt(2)-1.2599210498948732,
+    Math.log2(3)-1.584962500721156, Math.fround(0.1)-0.10000000149011612,
+    ['á','a','z'].sort(new Intl.Collator().compare).join(''),
+  ];
+  return vals.map(v => (typeof v === 'string' ? v : v.toPrecision(8))).join('|');
+}
+
+function getMediaFeatures() {
+  const mq = q => window.matchMedia(q).matches;
+  return [
+    mq('(color-gamut: p3)')?'p3':mq('(color-gamut: srgb)')?'srgb':'?',
+    mq('(dynamic-range: high)')?'HDR':'SDR',
+    mq('(forced-colors: active)')?'forced':'normal',
+    mq('(inverted-colors: inverted)')?'inverted':'normal',
+    mq('(prefers-contrast: more)')?'more':mq('(prefers-contrast: less)')?'less':'normal',
+  ].join('|');
+}
+
+function getPersistentID() {
+  return new Promise(resolve => {
+    try {
+      const req = indexedDB.open('_fpdb', 1);
+      req.onupgradeneeded = e => e.target.result.createObjectStore('fp', { keyPath: 'k' });
+      req.onsuccess = e => {
+        const db = e.target.result;
+        const store = db.transaction('fp','readwrite').objectStore('fp');
+        const get = store.get('id');
+        get.onsuccess = () => {
+          if (get.result) resolve(get.result.v);
+          else { const id = crypto.randomUUID?crypto.randomUUID():Math.random().toString(36).slice(2); store.put({k:'id',v:id}); resolve(id); }
+        };
+        get.onerror = () => resolve('idb-error');
+      };
+      req.onerror = () => resolve('idb-blocked');
+    } catch(e) { resolve('idb-blocked'); }
+  });
+}
+
+async function getMediaCount() {
+  try {
+    const d = await navigator.mediaDevices.enumerateDevices();
+    return { audio: d.filter(x=>x.kind==='audioinput').length, video: d.filter(x=>x.kind==='videoinput').length, out: d.filter(x=>x.kind==='audiooutput').length };
+  } catch(e) { return null; }
+}
+
+async function run() {
+  // ── Capabilities (✔/✗, not hashed — they're support flags) ──
+  const caps = detectCapabilities();
+  for (const [k,v] of Object.entries(caps)) {
+    add(k, v ? '✔ True' : '✗ False', v ? 't' : 'f');
+    parts.push(k + ':' + v); // still contributes to hash
+  }
+
+  // ── Canvas + PNG analysis ──
+  const canvas = getCanvas();
+  add('Canvas Fingerprint', canvas.url === 'blocked' ? 'blocked' : 'active');
+  parts.push(canvas.url);
+  if (canvas.png) {
+    add('PNG File Size', canvas.png.fileSize + ' bytes');
+    add('PNG Chunks', canvas.png.chunks.map(c=>c.type).join(', '));
+    add('PNG IDAT CRC', canvas.png.idatCRC ? '0x'+canvas.png.idatCRC : 'N/A');
+    parts.push(canvas.png.idatCRC || '');
+  }
+  add('Canvas Color Count', canvas.colors >= 0 ? canvas.colors + ' colors' : 'N/A');
+
+  // ── WebGL ──
+  const wgl = getWebGL();
+  if (wgl) {
+    add('WebGL Renderer', wgl.renderer);
+    add('WebGL Vendor', wgl.vendor);
+    add('WebGL Image Hash', '0x' + wgl.imgHash);
+    add('WebGL Extensions', wgl.exts.split(',').length + ' extensions');
+    parts.push(wgl.exts);
+    const p = Object.entries(wgl.params).map(([k,v])=>`${k}:${v}`).join('|');
+    add('WebGL Parameters', p.slice(0,70)+'…');
+    parts.push(p);
+  } else add('WebGL', 'blocked/unavailable');
+
+  // ── Audio ──
+  add('Audio (OfflineAudioContext)', await getAudio());
+
+  // ── Fonts ──
+  const fonts = getFonts();
+  add('Fonts detected', fonts.length + ' / 25: ' + fonts.join(', '));
+  parts.push(fonts.join(','));
+
+  // ── Math ──
+  const m = getMathFingerprint();
+  add('Math/JS Engine', m.slice(0,55)+'…');
+  parts.push(m);
+
+  // ── CSS media features ──
+  add('CSS Media Features', getMediaFeatures());
+
+  // ── Navigator ──
+  add('User Agent', navigator.userAgent);
+  add('Language', navigator.language + ' [' + (navigator.languages||[]).join(', ') + ']', 'noflag');
+  parts.push(navigator.language); // primary only — navigator.languages is truncated in incognito
+  add('CPU Cores', navigator.hardwareConcurrency || 'hidden');
+  add('Device RAM', navigator.deviceMemory ? navigator.deviceMemory+' GB' : 'hidden');
+
+  // ── Screen (stable) ──
+  add('Color Depth', screen.colorDepth + ' bit');
+  add('Pixel Ratio', window.devicePixelRatio + 'x');
+
+  // ── Timezone ──
+  add('Timezone', Intl.DateTimeFormat().resolvedOptions().timeZone);
+
+  // ── Pointer ──
+  add('Max Touch Points', navigator.maxTouchPoints);
+  add('Pointer Type', window.matchMedia('(pointer:fine)').matches?'fine':window.matchMedia('(pointer:coarse)').matches?'coarse':'none');
+
+  // ── Media devices ──
+  const mc = await getMediaCount();
+  add('Media Devices', mc ? `mic:${mc.audio} cam:${mc.video} spk:${mc.out}` : 'unavailable');
+
+  // ── Persistent ID (shown for info, NOT hashed — incognito gets a fresh one) ──
+  const pid = await getPersistentID();
+  add('Persistent ID (IndexedDB)', pid, 'noflag');
+
+  // ── Prefs (shown for info; color scheme NOT hashed — it toggles dark/light) ──
+  add('Color Scheme', window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light', 'noflag');
+  add('Reduced Motion', window.matchMedia('(prefers-reduced-motion: reduce)').matches?'reduce':'no-preference');
+
+  // ── Hash ──
+  const encoded = new TextEncoder().encode(parts.join('|||'));
+  const buf = await crypto.subtle.digest('SHA-256', encoded);
+  const bytes = new Uint8Array(buf);
+  // base64url encode (shorter than hex: 43 chars vs 64)
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  const b64url = btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+  // insert <wbr> break opportunities every 4 chars so text-wrap:balance can split evenly
+  document.getElementById('out').innerHTML = b64url.match(/.{1,4}/g).join('<wbr>');
+
+  // ── Render list ──
+  const list = document.getElementById('signal-list');
+  for (const s of signals) {
+    const row = document.createElement('div');
+    row.className = 'signal-row';
+    const cls = s.flag === 't' ? ' t' : s.flag === 'f' ? ' f' : '';
+    row.innerHTML = `<span class="sig-name">${s.name}</span><span class="sig-val${cls}">${s.value}</span>`;
+    list.appendChild(row);
+  }
+}
+
+run();
 </script>
 </body>
 </html>
